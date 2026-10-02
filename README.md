@@ -49,12 +49,10 @@ Giving Codex the same files was easy: an `AGENTS.md` that says *read what Claude
 
 ```mermaid
 flowchart LR
-    U([You]) -- voice or typed --> CX[Codex]
-    U -- typed --> CL[Claude Code]
-    CX -. writes .-> CXL[(~/.codex/sessions)]
-    CL -. writes .-> CLL[(~/.claude/projects)]
-    CXL -- new lines only --> H1{{hook before every Claude message}} --> CL
-    CLL -- new lines only --> H2{{hook before every Codex message}} --> CX
+    CX["<b>Codex</b><br/>voice or typed"]
+    CL["<b>Claude Code</b><br/>typed"]
+    CX -- "what you just said,<br/>read from its session log" --> CL
+    CL -- "what you just said,<br/>read from its session log" --> CX
 ```
 
 - Both agents already log every conversation to disk. agent-sync doesn't add a server or a database. It reads those logs.
