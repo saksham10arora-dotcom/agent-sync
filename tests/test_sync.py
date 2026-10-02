@@ -91,5 +91,50 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
 
 
+class InstallTest(unittest.TestCase):
+    def setUp(self):
+        self.proj = tempfile.mkdtemp()
+
+    def install(self):
+        out = subprocess.run([sys.executable, SYNC, "install", self.proj], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return out.stdout
+
+    def hooks(self, rel):
+        with open(os.path.join(self.proj, rel)) as f:
+            return json.load(f)
+
+    def test_fresh_project_gets_both_hooks(self):
+        self.install()
+        for rel, me in ((".claude/settings.json", "claude"), (".codex/hooks.json", "codex")):
+            cmds = [h["command"] for g in self.hooks(rel)["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+            self.assertEqual(len(cmds), 1)
+            self.assertIn(f"inject --me {me}", cmds[0])
+
+    def test_keeps_existing_settings_and_is_idempotent(self):
+        os.makedirs(os.path.join(self.proj, ".claude"))
+        existing = {"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo bye"}]}]}}
+        with open(os.path.join(self.proj, ".claude/settings.json"), "w") as f:
+            json.dump(existing, f)
+        self.install()
+        out = self.install()
+        self.assertIn("already installed", out)
+        cfg = self.hooks(".claude/settings.json")
+        self.assertEqual(cfg["model"], "opus")
+        self.assertEqual(cfg["hooks"]["Stop"], existing["hooks"]["Stop"])
+        self.assertEqual(len(cfg["hooks"]["UserPromptSubmit"]), 1)
+        self.assertTrue(os.path.exists(os.path.join(self.proj, ".claude/settings.json.bak")))
+
+    def test_broken_json_is_left_alone(self):
+        os.makedirs(os.path.join(self.proj, ".codex"))
+        bad = os.path.join(self.proj, ".codex/hooks.json")
+        with open(bad, "w") as f:
+            f.write("{ not json")
+        out = self.install()
+        self.assertIn("left untouched", out)
+        with open(bad) as f:
+            self.assertEqual(f.read(), "{ not json")
+
+
 if __name__ == "__main__":
     unittest.main()

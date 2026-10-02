@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Keep Claude Code and Codex on the same page.
 
+    sync.py install [project_dir]   add the hooks for both agents (safe to re-run)
+
 Runs as a UserPromptSubmit hook on both agents:
     sync.py inject --me claude   (in .claude/settings.json)
     sync.py inject --me codex    (in .codex/hooks.json)
@@ -198,7 +200,47 @@ def inject(me, session_id):
     return fmt(turns, other) if turns else ""
 
 
+HOOK_FILES = {"claude": ".claude/settings.json", "codex": ".codex/hooks.json"}
+
+
+def install(project):
+    """Add the UserPromptSubmit hook for both agents to `project`. Safe to re-run."""
+    script = os.path.abspath(__file__)
+    for me, rel in HOOK_FILES.items():
+        path = os.path.join(project, rel)
+        cfg = {}
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    cfg = json.load(f)
+            except ValueError:
+                print(f"x  {rel}: not valid JSON, left untouched. Add the hook by hand (see README).")
+                continue
+        groups = cfg.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
+        marker = f"inject --me {me}"
+        if any(marker in h.get("command", "") and "sync.py" in h.get("command", "")
+               for g in groups for h in g.get("hooks", [])):
+            print(f"=  {rel}: already installed")
+            continue
+        groups.append({"hooks": [{"type": "command", "timeout": 5,
+                                  "command": f'"{sys.executable}" "{script}" inject --me {me}'}]})
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        backed_up = os.path.exists(path)
+        if backed_up:
+            with open(path) as src, open(path + ".bak", "w") as bak:
+                bak.write(src.read())
+        with open(path, "w") as f:
+            json.dump(cfg, f, indent=2)
+            f.write("\n")
+        print(f"+  {rel}: hook added" + (f" (old file saved as {rel}.bak)" if backed_up else ""))
+    print("\nLast step: Codex runs new hooks only after you trust them.\n"
+          "   cd into this folder, run `codex`, type /hooks, press t.")
+
+
 def main():
+    if sys.argv[1:2] == ["install"]:
+        install(os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.getcwd()))
+        return
     try:
         args = sys.argv[1:]
         me = args[args.index("--me") + 1] if "--me" in args else "claude"
